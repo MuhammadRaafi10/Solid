@@ -1,0 +1,35 @@
+import os, sys, random
+from playwright.sync_api import sync_playwright
+BASE = os.environ.get('BASE_URL', 'http://localhost/solid/')
+SUF = str(random.randint(1000, 9999))
+fails = []
+def check(n, c):
+    print(('PASS ' if c else 'FAIL ') + n)
+    if not c: fails.append(n)
+with sync_playwright() as p:
+    pg = p.chromium.launch().new_page(viewport={'width': 1280, 'height': 800})
+    pg.goto(BASE); pg.wait_for_selector('#authForm'); pg.click('[data-t=register]')
+    f = pg.locator('#authForm')
+    f.locator('[name=name]').fill('Crud Tester'); f.locator('[name=username]').fill('crud' + SUF); f.locator('[name=email]').fill('crud' + SUF + '@x.id')
+    f.locator('[name=angkatan]').select_option('2024'); f.locator('[name=password]').fill('solid1234')
+    f.locator('button[type=submit]').click(); pg.wait_for_selector('nav.rail'); pg.wait_for_selector('dialog[open]'); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    # rencana butuh percakapan: buat grup dulu
+    pg.click('[data-tab=chat]'); pg.locator('.list-tools button').nth(1).click(); pg.wait_for_selector('dialog[open]')
+    pg.fill('#gName', 'Tim Uji'); pg.click('dialog[open] footer .coral'); pg.wait_for_selector('dialog[open]', state='detached'); pg.wait_for_timeout(500)
+    pg.click('[data-tab=plans]'); pg.wait_for_timeout(400)
+    check('awal: belum ada rencana', pg.locator('.pitem').count() == 0)
+    pg.click('#newPlan'); pg.wait_for_selector('dialog[open]'); pg.fill('#pTitle', 'Belajar bareng'); pg.fill('#pDate', '2099-12-20'); pg.fill('#pTime', '10:00')
+    pg.click('dialog[open] footer .coral'); pg.wait_for_selector('dialog[open]', state='detached'); pg.wait_for_timeout(600)
+    check('create via UI', pg.locator('.pitem').count() == 1 and 'Belajar bareng' in pg.inner_text('#planList'))
+    pg.click('#newPlan'); pg.wait_for_selector('dialog[open]'); pg.fill('#pTitle', 'Lama'); pg.evaluate("document.querySelector('#pDate').removeAttribute('min')"); pg.fill('#pDate', '2020-01-01'); pg.fill('#pTime', '10:00')
+    pg.click('dialog[open] footer .coral'); pg.wait_for_timeout(300)
+    check('tanggal lampau ditolak klien', pg.locator('dialog[open]').count() == 1 and pg.locator('#pDate[aria-invalid=true]').count() == 1)
+    pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    pg.locator('[data-edit]').click(); pg.wait_for_selector('dialog[open]')
+    check('form ubah terisi data lama', pg.input_value('#pTitle') == 'Belajar bareng' and pg.input_value('#pTime') == '10:00')
+    pg.fill('#pTitle', 'Belajar PHP'); pg.fill('#pTime', '13:30'); pg.click('dialog[open] footer .coral'); pg.wait_for_selector('dialog[open]', state='detached'); pg.wait_for_timeout(600)
+    t = pg.inner_text('#planList')
+    check('update via UI', 'Belajar PHP' in t and '13.30' in t.replace(':', '.') and 'Belajar bareng' not in t)
+    pg.locator('[data-del]').click(); pg.wait_for_selector('dialog[open]'); pg.click('dialog[open] footer .coral'); pg.wait_for_selector('dialog[open]', state='detached'); pg.wait_for_timeout(600)
+    check('delete via UI', pg.locator('.pitem').count() == 0)
+    print('FAILS', fails); sys.exit(1 if fails else 0)

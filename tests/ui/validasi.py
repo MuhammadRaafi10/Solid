@@ -1,0 +1,43 @@
+import os, sys, random
+from playwright.sync_api import sync_playwright
+BASE = os.environ.get('BASE_URL', 'http://localhost/solid/')
+SUF = str(random.randint(1000, 9999))   # akun uji unik tiap run
+fails=[]
+def check(n,c):
+    print(('PASS ' if c else 'FAIL ')+n)
+    if not c: fails.append(n)
+with sync_playwright() as p:
+    pg=p.chromium.launch().new_page(viewport={'width':1280,'height':800}); calls=[]
+    pg.on('request',lambda r: 'api/index.php' in r.url and calls.append(r.url.split('action=')[1]))
+    pg.goto(BASE); pg.wait_for_selector('#authForm')
+    def submit(): pg.click('#authForm button[type=submit]'); pg.wait_for_timeout(250)
+    calls.clear(); submit()
+    check('login kosong: tanpa request', 'login' not in calls and 'Isi ID' in pg.inner_text('#authErr'))
+    pg.click('[data-t=register]'); f=pg.locator('#authForm')
+    f.locator('[name=name]').fill('A'); calls.clear(); submit()
+    check('nama pendek ditolak klien', 'register' not in calls and f.locator('[name=name]').get_attribute('aria-invalid')=='true')
+    f.locator('[name=name]').fill('Budi Test'); f.locator('[name=username]').fill('Bad ID!'); submit()
+    check('ID tidak valid ditolak klien', 'register' not in calls and 'ID cuma' in pg.inner_text('#authErr'))
+    f.locator('[name=username]').fill('v'+SUF); f.locator('[name=email]').fill('salah'); submit()
+    check('email salah ditolak klien', 'register' not in calls and 'email' in pg.inner_text('#authErr'))
+    f.locator('[name=email]').fill('v'+SUF+'@x.id'); f.locator('[name=password]').fill('123'); submit()
+    check('password pendek ditolak klien', 'register' not in calls and 'minimal 8' in pg.inner_text('#authErr'))
+    f.locator('[name=angkatan]').select_option('2024'); f.locator('[name=password]').fill('solid1234'); submit(); pg.wait_for_selector('nav.rail')
+    check('data valid terkirim', 'register' in calls)
+    pg.wait_for_selector('dialog[open]'); pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    pg.click('[data-tab=me]'); pg.wait_for_timeout(300)
+    pg.fill('[name=nickname]','B'); calls.clear(); pg.click('#profForm button[type=submit]'); pg.wait_for_timeout(250)
+    check('profil: panggilan pendek ditolak klien', 'profile_update' not in calls and 'minimal 2' in pg.inner_text('#profErr'))
+    pg.fill('[name=nickname]','Budi'); pg.fill('[name=instagram]','bad name!'); pg.click('#profForm button[type=submit]'); pg.wait_for_timeout(250)
+    check('profil: instagram salah ditolak klien', 'profile_update' not in calls)
+    pg.fill('[name=instagram]','budi_t'); pg.click('#profForm button[type=submit]'); pg.wait_for_timeout(400)
+    check('profil valid tersimpan', 'profile_update' in calls)
+    pg.click('[data-tab=chat]'); pg.wait_for_timeout(300)
+    pg.click('#newGroup') if pg.locator('#newGroup').count() else pg.locator('.list-tools button').nth(1).click()
+    pg.wait_for_selector('dialog[open]'); pg.fill('#gName','ab'); calls.clear(); pg.click('dialog[open] footer .coral'); pg.wait_for_timeout(300)
+    check('grup: nama pendek ditolak klien', 'group_create' not in calls and pg.locator('output.toast').count()>0)
+    pg.keyboard.press('Escape'); pg.wait_for_timeout(200)
+    pg.locator('.list-tools button').first.click(); pg.wait_for_selector('dialog[open]'); pg.fill('#jCode','abc'); calls.clear(); pg.click('dialog[open] footer .coral'); pg.wait_for_timeout(300)
+    check('gabung: kode salah format ditolak klien', 'group_join' not in calls)
+    pg.keyboard.press('Escape')
+    print('FAILS',fails); sys.exit(1 if fails else 0)
